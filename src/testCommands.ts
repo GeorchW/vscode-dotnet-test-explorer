@@ -95,10 +95,10 @@ export class TestCommands implements Disposable {
 
     public async discoverTestsInFolder(dir: string): Promise<string[]> {
         const discoveredTests: string[] = []
-        const subscription = this.loggerServer.onMessage((message) => {
-            if (message.type === "discovery") {
-                discoveredTests.push(...message.discovered);
-            }
+        const subscription = this.loggerServer.onMessages((messages) => {
+            discoveredTests.push(...messages
+                .map(message => message.type === "discovery" ? message.discovered : [])
+                .flat());
         })
         try {
             const command = `dotnet test `

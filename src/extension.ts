@@ -17,7 +17,7 @@ import { TestStatusCodeLensProvider } from "./testStatusCodeLensProvider";
 import { Utility } from "./utility";
 import { Watch } from "./watch";
 import { createLocalTcpServer, readAllFromSocket, ILocalServer, shutdown } from "./netUtil";
-import { TestResultsListener } from "./testResultsListener";
+import { TestResultsListener, IResultMessage } from "./testResultsListener";
 import { TestNode } from "./treeNodes/testNode";
 import { TreeNode } from "./treeNodes/treeNode";
 
@@ -49,10 +49,8 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.registerTreeDataProvider("dotnetTestExplorer", dotnetTestExplorer);
     AppInsightsClient.sendEvent("loadExtension");
 
-    listener.onMessage((parsed) => {
-        if (parsed.type === "result") {
-            testCommands.sendNewTestResults([parsed])
-        }
+    listener.onMessages((parsed) => {
+        testCommands.sendNewTestResults(parsed.filter(item => item.type === "result") as IResultMessage[])
     });
 
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e: vscode.ConfigurationChangeEvent) => {

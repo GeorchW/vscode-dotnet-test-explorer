@@ -1,3 +1,5 @@
+using System.Threading;
+using System.Threading.Tasks.Dataflow;
 using System.Linq;
 using System;
 using System.Net.Sockets;
@@ -25,6 +27,16 @@ namespace VscodeTestExplorer.DataCollector
 
             port = int.Parse(parameters["port"]);
             Console.WriteLine($"Data collector initialized; writing to port {port}.");
+
+            var senderTask = Task.Run(async () => await SendMessages());
+
+            TaskCompletionSource<bool> runEndedTcs = new TaskCompletionSource<bool>();
+            runEnded = runEndedTcs.Task;
+            void Flush()
+            {
+                runEndedTcs.SetResult(true);
+                senderTask.Wait();
+            }
 
             events.TestRunStart += (sender, e) => StartSendJson(new { type = "testRunStarted" });
             events.TestRunComplete += (sender, e) =>
@@ -64,25 +76,62 @@ namespace VscodeTestExplorer.DataCollector
             await client.GetStream().WriteAsync(Encoding.UTF8.GetBytes(str));
         }
 
-        List<Task> tasks = new List<Task>();
+        BufferBlock<object> toBeSent = new BufferBlock<object>();
         void StartSendJson<T>(T obj)
         {
-            var task = SendString(JsonSerializer.Serialize(obj));
-            lock (tasks)
+            toBeSent.Post(obj);
+        }
+
+        Task runEnded;
+        async Task SendAggregatedMessageAsync()
+        {
+            var message = new List<object>();
+            CancellationTokenSource cts = new CancellationTokenSource();
+            var receiveTask = toBeSent.ReceiveAsync(cts.Token);
+            await Task.WhenAny(new[] { receiveTask, runEnded });
+            if (runEnded.IsCompleted)
             {
-                tasks.Add(task);
+                Console.WriteLine($"Run ended.");
+                cts.Cancel();
+                if (receiveTask.IsCompletedSuccessfully)
+                    message.Add(receiveTask.Result);
+            }
+            else
+            {
+                message.Add(await receiveTask);
+                Console.WriteLine($"Received a message - waiting for further messages...");
+                await Task.Delay(100);
+            }
+            if (toBeSent.TryReceiveAll(out var items))
+                message.AddRange(items);
+            if (message.Count > 0)
+            {
+                Console.WriteLine($"Sending {message.Count} messages...");
+                using TcpClient client = new TcpClient();
+                await client.ConnectAsync("localhost", port);
+                await JsonSerializer.SerializeAsync(client.GetStream(), message.ToArray(), typeof(object[]));
+                client.Close();
+                Console.WriteLine($"Done.");
             }
         }
 
-        void Flush()
+        async Task SendMessages()
         {
-            Task[] _tasks;
-            lock (tasks)
+            Console.WriteLine("Sender task started.");
+            while (!runEnded.IsCompleted)
             {
-                _tasks = tasks.ToArray();
-                tasks.Clear();
+                try
+                {
+                    await SendAggregatedMessageAsync();
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("Sending messages failed.");
+                    Console.WriteLine(e.ToString());
+                    Console.WriteLine(e.StackTrace);
+                }
             }
-            Task.WaitAll(_tasks);
+            Console.WriteLine("Sender task finished.");
         }
     }
 }

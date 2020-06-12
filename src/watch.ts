@@ -8,7 +8,7 @@ import { TestDirectories } from "./testDirectories";
 import { Utility } from "./utility";
 import { ChildProcess } from "child_process";
 import { ITestResult } from "./testResult";
-import { TestResultsListener } from "./testResultsListener";
+import { TestResultsListener, IResultMessage } from "./testResultsListener";
 
 export class Watch {
     private processes = new Map<string, ChildProcess>();
@@ -31,16 +31,24 @@ export class Watch {
             AppInsightsClient.sendEvent("runWatchCommand");
 
             const server = await TestResultsListener.create();
-            server.onMessage((message) => {
-                if (message.type === "testRunStarted") {
-                    onStart();
+            server.onMessages((messages) => {
+                let started = false;
+                let ended = false;
+                const results: IResultMessage[] = [];
+                for (const message of messages) {
+                    if (message.type === "result") {
+                        results.push(message);
+                    }
+                    else if (message.type === "testRunStarted") {
+                        started = true;
+                    }
+                    else if (message.type === "testRunComplete") {
+                        ended = true
+                    }
                 }
-                else if (message.type === "testRunComplete") {
-                    onEnd();
-                }
-                else if (message.type === "result") {
-                    onResult([message]);
-                }
+                if (started) onStart();
+                if (results) onResult(results);
+                if (ended) onEnd();
             });
 
             const command = `dotnet watch test ${Utility.additionalArgumentsOption} `

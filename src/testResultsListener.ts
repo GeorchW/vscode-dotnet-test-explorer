@@ -20,8 +20,8 @@ export type LoggerMessage =
     | EmptyMessage<"testRunComplete">;
 
 export class TestResultsListener implements vscode.Disposable {
-    private _onMessage: vscode.EventEmitter<LoggerMessage> = new vscode.EventEmitter<LoggerMessage>();
-    public onMessage = this._onMessage.event;
+    private _onMessages: vscode.EventEmitter<LoggerMessage[]> = new vscode.EventEmitter<LoggerMessage[]>();
+    public onMessages = this._onMessages.event;
 
     private server: netUtil.ILocalServer;
     public get port() { return this.server.port; }
@@ -33,8 +33,8 @@ export class TestResultsListener implements vscode.Disposable {
             socket.end();
 
             // Logger.Log(`Received message: ${data}`);
-            const parsed = JSON.parse(data) as LoggerMessage;
-            result._onMessage.fire(parsed);
+            const parsed = JSON.parse(data) as LoggerMessage[];
+            result._onMessages.fire(parsed);
         })
         Logger.Log(`Opened TCP server on port ${result.server.port}`);
         return result;
